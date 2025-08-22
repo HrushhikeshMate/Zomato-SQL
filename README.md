@@ -338,3 +338,98 @@ FROM current_year_data AS c
 JOIN last_year_data AS l
 ON c.restaurant_id = l.restaurant_id;
 ```
+### 10. Rider Average Delivery Time: 
+-- Determine each rider's average delivery time.
+
+```sql
+SELECT 
+    o.order_id,
+    o.order_time,
+    d.delivery_time,
+    d.rider_id,
+    d.delivery_time - o.order_time AS time_difference,
+	EXTRACT(EPOCH FROM (d.delivery_time - o.order_time + 
+	CASE WHEN d.delivery_time < o.order_time THEN INTERVAL '1 day' ELSE
+	INTERVAL '0 day' END))/60 as time_difference_insec
+FROM orders AS o
+JOIN deliveries AS d
+ON o.order_id = d.order_id
+WHERE d.delivery_status = 'Delivered';
+```
+
+### 11. Monthly Restaurant Growth Ratio: 
+-- Calculate each restaurant's growth ratio based on the total number of delivered orders since its joining
+
+```sql
+WITH growth_ratio
+AS
+(
+SELECT 
+	o.restaurant_id,
+	EXTRACT(YEAR FROM o.order_date) as year,
+	EXTRACT(MONTH FROM o.order_date) as month,
+	COUNT(o.order_id) as cr_month_orders,
+	LAG(COUNT(o.order_id), 1) OVER(PARTITION BY o.restaurant_id ORDER BY EXTRACT(YEAR FROM o.order_date),
+    EXTRACT(MONTH FROM o.order_date)) as prev_month_orders
+FROM orders as o
+JOIN
+deliveries as d
+ON o.order_id = d.order_id
+WHERE d.delivery_status = 'Delivered'
+GROUP BY 1, 2, 3
+ORDER BY 1, 2
+)
+SELECT
+	restaurant_id,
+	month,
+	prev_month_orders,
+	cr_month_orders,
+	ROUND(
+	(cr_month_orders::numeric-prev_month_orders::numeric)/prev_month_orders::numeric * 100
+	,2)
+	as growth_ratio
+FROM growth_ratio;
+```
+
+### 12. Customer Segmentation: 
+-- Customer Segmentation: Segment customers into 'Gold' or 'Silver' groups based on their total spending 
+-- compared to the average order value (AOV). If a customer's total spending exceeds the AOV, 
+-- label them as 'Gold'; otherwise, label them as 'Silver'. Write an SQL query to determine each segment's 
+-- total number of orders and total revenue
+
+```sql
+SELECT 
+	cx_category,
+	SUM(total_orders) as total_orders,
+	SUM(total_spent) as total_revenue
+FROM
+
+	(SELECT 
+		customer_id,
+		SUM(total_amount) as total_spent,
+		COUNT(order_id) as total_orders,
+		CASE 
+			WHEN SUM(total_amount) > (SELECT AVG(total_amount) FROM orders) THEN 'Gold'
+			ELSE 'silver'
+		END as cx_category
+	FROM orders
+	group by 1
+	) as t1
+GROUP BY 1;
+```
+
+### 13. Rider Monthly Earnings: 
+-- Calculate each rider's total monthly earnings, assuming they earn 8% of the order amount.
+
+```sql
+SELECT 
+	d.rider_id,
+	TO_CHAR(o.order_date, 'mm-yy') as month,
+	SUM(total_amount) as revenue,
+	SUM(total_amount)* 0.08 as riders_earning
+FROM orders as o
+JOIN deliveries as d
+ON o.order_id = d.order_id
+GROUP BY 1, 2
+ORDER BY 1, 2;
+```
